@@ -21,5 +21,6 @@ router.get('/groups/:groupId/expenses',       expenseCtrl.listGroupExpenses);
 // ── Expense routes ────────────────────────────────────────────
 router.post('/expenses',                      expenseCtrl.createExpense);
 router.delete('/expenses/:expenseId',         expenseCtrl.softDeleteExpense);
+router.get('/expenses/:expenseId/splits',     expenseCtrl.getExpenseSplits);
 
 module.exports = router;

@@ -16,6 +16,9 @@ export default function SettlementDashboard({ groups = [] }) {
   const [loading,     setLoading]     = useState(false);
   const [deleting,    setDeleting]    = useState('');
   const [error,       setError]       = useState('');
+  const [expanded,    setExpanded]    = useState({});
+  const [splitCache,  setSplitCache]  = useState({});
+  const [splitLoading, setSplitLoading] = useState('');
   const [filters,     setFilters]     = useState({
     deleted: 'active',
     paidBy: [],
@@ -100,6 +103,21 @@ export default function SettlementDashboard({ groups = [] }) {
       setError(err.message);
     } finally {
       setDeleting('');
+    }
+  };
+
+  const toggleExpense = async (expenseId) => {
+    if (!expenseId) return;
+    setExpanded((prev) => ({ ...prev, [expenseId]: !prev[expenseId] }));
+    if (splitCache[expenseId]) return;
+    setSplitLoading(expenseId);
+    try {
+      const data = await api.get(`/expenses/${expenseId}/splits`);
+      setSplitCache((prev) => ({ ...prev, [expenseId]: data.splits || [] }));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSplitLoading('');
     }
   };
 
@@ -381,32 +399,63 @@ export default function SettlementDashboard({ groups = [] }) {
                   <div className="flex flex-col gap-3">
                     {filteredExpenses.map((e) => (
                       <div key={e.expense_id}
-                        className={`flex flex-col sm:flex-row sm:items-center gap-3 p-4 rounded-2xl border
+                        className={`rounded-2xl border overflow-hidden
                           ${e.is_deleted ? 'bg-slate-100 border-slate-200 opacity-70' : 'bg-white border-slate-200'}`}
                       >
-                        <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-semibold text-slate-900 ${e.is_deleted ? 'line-through' : ''}`}>
-                            {e.title}
-                          </p>
-                          <p className="text-xs text-slate-500">
-                            Paid by {e.paid_by_name} · {e.category} · {new Date(e.created_at).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-3">
-                          <span className="text-sm font-semibold text-slate-900">{fmt(e.total_amount)}</span>
-                          {e.is_deleted ? (
-                            <Badge variant="red">Deleted</Badge>
-                          ) : (
+                        <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-4">
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm font-semibold text-slate-900 ${e.is_deleted ? 'line-through' : ''}`}>
+                              {e.title}
+                            </p>
+                            <p className="text-xs text-slate-500">
+                              Paid by {e.paid_by_name} · {e.category} · {new Date(e.created_at).toLocaleDateString()}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-sm font-semibold text-slate-900">{fmt(e.total_amount)}</span>
                             <Button
                               variant="ghost"
-                              className="text-red-600 hover:text-red-700"
-                              disabled={deleting === e.expense_id}
-                              onClick={() => deleteExpense(e.expense_id)}
+                              onClick={() => toggleExpense(e.expense_id)}
                             >
-                              {deleting === e.expense_id ? 'Deleting…' : 'Delete'}
+                              {expanded[e.expense_id] ? 'Hide' : 'Details'}
                             </Button>
-                          )}
+                            {e.is_deleted ? (
+                              <Badge variant="red">Deleted</Badge>
+                            ) : (
+                              <Button
+                                variant="ghost"
+                                className="text-red-600 hover:text-red-700"
+                                disabled={deleting === e.expense_id}
+                                onClick={() => deleteExpense(e.expense_id)}
+                              >
+                                {deleting === e.expense_id ? 'Deleting…' : 'Delete'}
+                              </Button>
+                            )}
+                          </div>
                         </div>
+
+                        {expanded[e.expense_id] && (
+                          <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+                            {splitLoading === e.expense_id && (
+                              <div className="flex items-center gap-2 text-xs text-slate-500">
+                                <Spinner size="sm" /> Loading details…
+                              </div>
+                            )}
+
+                            {splitCache[e.expense_id] && splitCache[e.expense_id].length > 0 && (
+                              <div className="flex flex-col gap-2 text-xs text-slate-600">
+                                {splitCache[e.expense_id]
+                                  .filter((s) => s.user_id !== s.payer_id)
+                                  .map((s) => (
+                                    <div key={`${s.user_id}-${s.payer_id}`} className="flex justify-between">
+                                      <span>{s.user_name} owes {s.payer_name}</span>
+                                      <span className="font-semibold text-slate-900">{fmt(s.owed_amount)}</span>
+                                    </div>
+                                  ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

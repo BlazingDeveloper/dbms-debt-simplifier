@@ -27,6 +27,32 @@ async function rebuildNetBalances(client, groupId) {
   );
 }
 
+async function computeGroupBalances(groupId) {
+  const { rows } = await pool.query(
+    `SELECT u.user_id, u.full_name, u.username, SUM(t.delta) AS balance
+       FROM (
+         SELECT e.group_id, es.user_id, -es.owed_amount AS delta
+         FROM ExpenseSplits es
+         JOIN Expenses e ON e.expense_id = es.expense_id
+         WHERE e.group_id = $1
+           AND e.is_deleted = FALSE
+           AND es.user_id <> e.paid_by
+         UNION ALL
+         SELECT e.group_id, e.paid_by AS user_id, es.owed_amount AS delta
+         FROM ExpenseSplits es
+         JOIN Expenses e ON e.expense_id = es.expense_id
+         WHERE e.group_id = $1
+           AND e.is_deleted = FALSE
+           AND es.user_id <> e.paid_by
+       ) t
+       JOIN Users u ON u.user_id = t.user_id
+      GROUP BY u.user_id, u.full_name, u.username
+      ORDER BY balance DESC`,
+    [groupId]
+  );
+  return rows;
+}
+
 // ─────────────────────────────────────────────────────────────
 //  POST /api/expenses
 //
@@ -166,20 +192,14 @@ async function createExpense(req, res) {
 async function getSettlements(req, res) {
   const { groupId } = req.params;
   try {
-    const { rows } = await pool.query(
-      `SELECT user_id, full_name, username, balance
-         FROM vw_group_balances
-        WHERE group_id = $1
-          AND balance  <> 0
-        ORDER BY balance DESC`,
-      [groupId]
-    );
+    const rows = await computeGroupBalances(groupId);
+    const nonZero = rows.filter((r) => parseFloat(r.balance) !== 0);
 
-    if (rows.length === 0) {
+    if (nonZero.length === 0) {
       return res.json({ settlements: [], message: 'All debts are settled.' });
     }
 
-    return res.json({ settlements: minimizeCashFlow(rows) });
+    return res.json({ settlements: minimizeCashFlow(nonZero) });
   } catch (err) {
     console.error('[getSettlements]', err.message);
     return res.status(500).json({ error: 'Failed to compute settlements.' });
@@ -235,13 +255,7 @@ async function getFoodExpenses(req, res) {
 async function getGroupBalances(req, res) {
   const { groupId } = req.params;
   try {
-    const { rows } = await pool.query(
-      `SELECT user_id, full_name, username, balance, updated_at
-         FROM vw_group_balances
-        WHERE group_id = $1
-        ORDER BY balance DESC`,
-      [groupId]
-    );
+    const rows = await computeGroupBalances(groupId);
     return res.json({ balances: rows });
   } catch (err) {
     console.error('[getGroupBalances]', err.message);
@@ -283,6 +297,45 @@ async function listGroupExpenses(req, res) {
   } catch (err) {
     console.error('[listGroupExpenses]', err.message);
     return res.status(500).json({ error: 'Failed to fetch expenses.' });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  GET /api/expenses/:expenseId/splits
+// ─────────────────────────────────────────────────────────────
+async function getExpenseSplits(req, res) {
+  const { expenseId } = req.params;
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+         e.expense_id,
+         e.title,
+         e.total_amount,
+         e.is_deleted,
+         payer.user_id    AS payer_id,
+         payer.full_name  AS payer_name,
+         payer.username   AS payer_username,
+         u.user_id        AS user_id,
+         u.full_name      AS user_name,
+         u.username       AS user_username,
+         es.owed_amount
+       FROM ExpenseSplits es
+       JOIN Expenses e ON e.expense_id = es.expense_id
+       JOIN Users u ON u.user_id = es.user_id
+       JOIN Users payer ON payer.user_id = e.paid_by
+       WHERE e.expense_id = $1
+       ORDER BY es.owed_amount DESC`,
+      [expenseId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Expense not found.' });
+    }
+
+    return res.json({ splits: rows });
+  } catch (err) {
+    console.error('[getExpenseSplits]', err.message);
+    return res.status(500).json({ error: 'Failed to fetch expense splits.' });
   }
 }
 
@@ -354,6 +407,7 @@ module.exports = {
   getFoodExpenses,
   getGroupBalances,
   listGroupExpenses,
+  getExpenseSplits,
   softDeleteExpense,
   listGroups,
 };
