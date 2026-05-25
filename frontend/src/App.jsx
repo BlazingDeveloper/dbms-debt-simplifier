@@ -4,6 +4,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from './api';
 import { Toast, useToast, Spinner, Avatar } from './components/ui';
+import logo from './assets/logo.png';
 import CreateUser          from './components/CreateUser';
 import CreateGroup         from './components/CreateGroup';
 import AddExpense          from './components/AddExpense';
@@ -60,7 +61,8 @@ export default function App() {
     <div className="min-h-screen bg-gray-50 text-slate-900">
       <div className="flex min-h-screen">
         <aside className="hidden md:flex w-64 flex-col border-r border-slate-200 bg-white px-4 py-6">
-          <div className="flex items-center gap-2 px-3">
+          <div className="flex items-center gap-3 px-3">
+            <img src={logo} alt="FairShare" className="h-8 w-16 rounded-lg object-fill bg-white border border-slate-200" />
             <span className="text-lg font-semibold tracking-tight">FairShare</span>
           </div>
           <nav className="mt-8 flex flex-col gap-2">
